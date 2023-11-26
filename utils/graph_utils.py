@@ -60,7 +60,7 @@ def nearest_neighbors(
 def build_graph(halo_pos, k, use_pbc=True, use_edges=True, unit_cell = jnp.array([[1.,0.,0.,],[0.,1.,0.], [0.,0.,1.]])):
     
     n_batch = len(halo_pos)
-    sources, targets, distances = jax.vmap(partial(nearest_neighbors, pbc=use_pbc), in_axes=(0, None, None))(halo_pos, k, unit_cell)
+    sources, targets, distances = jax.vmap(partial(nearest_neighbors, pbc=use_pbc), in_axes=(0, None, None))(halo_pos[..., :3], k, unit_cell)
 
     return jraph.GraphsTuple(
             n_node=jnp.array([[halo_pos.shape[1]]]*n_batch),
