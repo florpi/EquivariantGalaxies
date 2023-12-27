@@ -58,7 +58,7 @@ def nearest_neighbors(
     # return sources, targets, distance_matrix[sources, targets]
     return sources, targets, dr[sources, targets]
 
-def build_graph(halo_pos, k, use_pbc=True, unit_cell = jnp.array([[1.,0.,0.,],[0.,1.,0.], [0.,0.,1.]])):
+def build_graph(halo_pos, k, use_pbc=True, use_edges=True, unit_cell = jnp.array([[1.,0.,0.,],[0.,1.,0.], [0.,0.,1.]])):
     
     n_batch = len(halo_pos)
     sources, targets, distances = jax.vmap(partial(nearest_neighbors, pbc=use_pbc), in_axes=(0, None, None))(halo_pos[..., :3], k, unit_cell)
@@ -67,7 +67,7 @@ def build_graph(halo_pos, k, use_pbc=True, unit_cell = jnp.array([[1.,0.,0.,],[0
             n_node=jnp.array([[halo_pos.shape[1]]]*n_batch),
             n_edge=jnp.array(n_batch * [[k]]),
             nodes=halo_pos, 
-            edges=None,
+            edges=jnp.sqrt(jnp.sum(distances **2, axis=-1, keepdims=True)) if use_edges else None,
             globals=None, 
             senders=sources, 
             receivers=targets,
