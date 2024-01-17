@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jraph
 from jraph._src import utils
 
-from utils.graph_utils import fourier_features
+from utils.graph_utils import fourier_features, apply_pbc
 from models.mlp import MLP
 
 
@@ -59,8 +59,14 @@ def get_edge_mlp_updates(d_hidden, n_layers, activation, position_only=False, us
         phi_x = MLP([d_hidden] * (n_layers - 1), activation=activation, activate_final=True)
         phi_x_last_layer = nn.Dense(1, use_bias=False, kernel_init=jax.nn.initializers.variance_scaling(scale=1e-2, mode="fan_in", distribution="uniform"))
 
-        # Relative distances, optionally with Fourier features
-        d_ij2 = jnp.sum((x_i - x_j) ** 2, axis=1, keepdims=True)
+        # Relative distances
+        unit_cell = jnp.array([[1.,0.,0.,],[0.,1.,0.], [0.,0.,1.]])
+        d_ij = x_i - x_j
+        d_ij = apply_pbc(d_ij, unit_cell)
+        d_ij2 = jnp.sum(d_ij ** 2, axis=1, keepdims=True)
+        # d_ij2 = jnp.sum((x_i - x_j) ** 2, axis=1, keepdims=True)
+
+        # optionally with Fourier features
         d_ij2 = fourier_features(d_ij2, **fourier_feature_kwargs) if use_fourier_features else d_ij2
 
         # Get invariants
@@ -84,7 +90,8 @@ def get_edge_mlp_updates(d_hidden, n_layers, activation, position_only=False, us
         if tanh_out:
             trans = jax.nn.tanh(trans)
 
-        x_ij_trans = (x_i - x_j) * trans
+        # x_ij_trans = (x_i - x_j) * trans
+        x_ij_trans = d_ij * trans
         x_ij_trans = jnp.clip(x_ij_trans, -100., 100.)  # From original code
 
         return x_ij_trans, m_ij
@@ -209,6 +216,7 @@ class EGNN(nn.Module):
     task: str = "graph"  # "graph" or "node"
     readout_only_positions: bool = False  # Graph-level readout only uses positions
     n_outputs: int = 1  # Number of outputs for graph-level readout
+    get_node_reps: bool = False
 
     @nn.compact
     def __call__(self, graphs: jraph.GraphsTuple) -> jraph.GraphsTuple:
@@ -244,6 +252,7 @@ class EGNN(nn.Module):
                                         aggregate_edges_for_nodes_fn=aggregate_edges_for_nodes_fn)
             
             processed_graphs = graph_net(processed_graphs)
+        node_reps = processed_graphs.nodes
 
         if self.readout_agg not in ["sum", "mean", "mmax"]:
             raise ValueError(f"Invalid global aggregation function {self.message_passing_agg}")
@@ -258,11 +267,11 @@ class EGNN(nn.Module):
             if self.readout_only_positions:
                 agg_nodes = readout_agg_fn(processed_graphs.nodes[:, :3], axis=0)
             else:
-                agg_nodes = readout_agg_fn(processed_graphs.nodes, axis=0)
+                agg_nodes = readout_agg_fn(processed_graphs.nodes, axis=0) #pairnorm
 
             # Readout and return
             out = MLP([w * self.d_hidden for w in self.mlp_readout_widths] + [self.n_outputs,])(agg_nodes)  
-            return out
-        
+            return out, node_reps
+ 
         else:
             raise ValueError(f"Invalid task {self.task}")

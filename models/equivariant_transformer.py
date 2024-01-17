@@ -4,6 +4,8 @@ import flax.linen as nn
 import e3nn_jax as e3nn
 from models.mlp import MLP
 
+from utils.graph_utils import apply_pbc
+
 from typing import Callable, List, Tuple
 
 
@@ -65,7 +67,7 @@ class EquivariantTransformer(nn.Module):
     irreps_out: e3nn.Irreps
     d_hidden: int = 64
     n_layers: int = 4
-    act: str = "gelu"
+    activation: str = "gelu"
     num_heads: int = 1
     mlp_readout_widths: List[int] = (8, 2)
     n_outputs: int = 1
@@ -94,16 +96,20 @@ class EquivariantTransformer(nn.Module):
 
         list_neurons = self.n_layers * (self.d_hidden,)
 
-        vectors = positions[senders] - positions[receivers]
+        unit_cell = np.array([[1.,0.,0.,],[0.,1.,0.], [0.,0.,1.]])
+        vectors = positions[senders] - positions[receivers] 
+        vectors = apply_pbc(vectors.array, unit_cell)
+        vectors = e3nn.IrrepsArray("1o", vectors)
         dist = np.linalg.norm(vectors.array, axis=1) / cutoff
-
+        
+        # check bessel params
         edge_attr = e3nn.concatenate([e3nn.bessel(dist, 4), e3nn.spherical_harmonics(list(range(1, 3 + 1)), vectors, True)])
         edge_weight_cutoff = e3nn.soft_envelope(dist)
 
         features = EquivariantTransformerBlock(
             irreps_node_output=e3nn.Irreps("1o") + self.irreps_out,
             list_neurons=list_neurons,
-            act=getattr(jax.nn, self.act),
+            act=getattr(jax.nn, self.activation),
             num_heads=self.num_heads,
         )(senders, receivers, edge_weight_cutoff, edge_attr, features)
         
@@ -117,4 +123,4 @@ class EquivariantTransformer(nn.Module):
         out = MLP([w * self.d_hidden for w in self.mlp_readout_widths] + [self.n_outputs,])(agg_nodes)
 
         # Return updated graph
-        return out
+        return out, features
