@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import jraph
 
 from functools import partial
+from e3nn_jax import Irreps, IrrepsArray
 
 EPS = 1e-5
 
@@ -66,6 +67,21 @@ def build_graph(halo_pos, k, use_pbc=True, use_edges=True, unit_cell = jnp.array
             n_node=jnp.array([[halo_pos.shape[1]]]*n_batch),
             n_edge=jnp.array(n_batch * [[k]]),
             nodes=halo_pos, 
+            edges=jnp.sqrt(jnp.sum(distances **2, axis=-1, keepdims=True)) if use_edges else None,
+            globals=None, 
+            senders=sources, 
+            receivers=targets,
+        )
+
+def build_graph_irreps(halo_pos, k, use_pbc=True, use_edges=True, unit_cell = jnp.array([[1.,0.,0.,],[0.,1.,0.], [0.,0.,1.]]), **kwargs):
+    
+    n_batch = len(halo_pos)
+    sources, targets, distances = jax.vmap(partial(nearest_neighbors, pbc=use_pbc), in_axes=(0, None, None))(halo_pos[..., :3], k, unit_cell)
+
+    return jraph.GraphsTuple(
+            n_node=jnp.array([[halo_pos.shape[1]]]*n_batch),
+            n_edge=jnp.array(n_batch * [[k]]),
+            nodes=IrrepsArray("1o + 1o + 1x0e", halo_pos), 
             edges=jnp.sqrt(jnp.sum(distances **2, axis=-1, keepdims=True)) if use_edges else None,
             globals=None, 
             senders=sources, 

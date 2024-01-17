@@ -122,6 +122,7 @@ def get_node_mlp_updates(d_hidden, n_layers, activation, n_edges, position_only=
 
         if normalize_messages:
             sum_x_ij = sum_x_ij / (n_edges - 1)  # C = M - 1 as in original paper
+            m_i = m_i / (n_edges - 1)
 
         if position_only:  # Positions only; no velocities
             if nodes.shape[-1] == 3:  # No scalar attributes
@@ -171,6 +172,8 @@ def get_node_mlp_updates(d_hidden, n_layers, activation, n_edges, position_only=
                 phi_h = MLP([d_hidden] * (n_layers - 1) + [h_i.shape[-1]], activation=activation)
 
                 concats = h_i
+                # Concatenate with m_i
+                concats = jnp.concatenate([concats, m_i], -1)
                 if globals is not None:
                     concats = jnp.concatenate([concats, globals], -1)
                     
